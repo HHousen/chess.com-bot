@@ -1,4 +1,5 @@
 import chess
+import random
 import chess.engine
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
@@ -31,13 +32,18 @@ chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument("--log-level=3")
 driver = webdriver.Chrome("chromedriver.exe", options=chrome_options)
 with open("board.txt") as f:
-    array = [i.split() for i in f]
+    original_array = [i.split() for i in f]
 
 # url = input("Enter a url\n> ")
-# for pawn promotion testing
-# url = "https://www.chess.com/play/computer?fen=qkb3nr/ppppppPp/8/8/8/8/PPPPPPP1/RNBQKBNR%20w%20KQ%20-%200%201"
 url = "https://www.chess.com/play/computer"
+# url = "https://www.chess.com/login_and_go?returnUrl=https://www.chess.com/play/online"
 driver.get(url)
+driver.find_element_by_id("username").send_keys("[[EMAIL]]")
+driver.find_element_by_id("password").send_keys("[[PASSWORD]]")
+driver.find_element_by_id("login").click()
+
+def rotate_90(original):
+    return list(zip(*original[::-1]))
 
 def open_chrome():
     '''
@@ -55,7 +61,7 @@ def check_fen(extension):
     return f"{base} {extension}"
     
         
-def find_loc(piece):
+def find_loc(piece, array):
     for i, row in enumerate(array):
         for j, col in enumerate(row):
             if col == piece:
@@ -63,35 +69,60 @@ def find_loc(piece):
 
 
 color = input("Whose turn is it right now? Choices are 'w' for white; 'b' for black\n> ")
-print("\nCan the white king castle?\nk for king's side; q for queen's side; - for neither")
-castle_w = input("Choices are 'kq', 'k', 'q', or '-'\n> ").upper()
+is_white = color == "w"
 
-print("\nCan the black king castle?\nk for king's side; q for queen's side; - for neither")
-castle_b = input("Choices are 'kq', 'k', 'q', or '-'\n> ").lower()
+if is_white:
+    array = original_array
+else:
+    array = rotate_90(original_array)
+    array = rotate_90(array)
 
-print("\nWhat is the en passant target square in algebraic notation?")
-en_passant = input("If a pawn has just made a two-square move, this is origin square.\nIf there is no en passant or you are not sure, put '-'.\n> ").lower()
-half_move = input("\nWhat is the number of half moves? Put '0' if you are not sure.\n> ")
-full_move = input("\nWhat is the number of full moves? Put 1' if you are not sure.\n> ")
+#print("\nCan the white king castle?\nk for king's side; q for queen's side; - for neither")
+castle_w = "KQ" if is_white else "-" #input("Choices are 'kq', 'k', 'q', or '-'\n> ").upper()
+
+#print("\nCan the black king castle?\nk for king's side; q for queen's side; - for neither")
+castle_b = "kq" if is_white else "-" #input("Choices are 'kq', 'k', 'q', or '-'\n> ").lower()
+
+#print("\nWhat is the en passant target square in algebraic notation?")
+en_passant = "-" #input("If a pawn has just made a two-square move, this is origin square.\nIf there is no en passant or you are not sure, put '-'.\n> ").lower()
+half_move = 0 #input("\nWhat is the number of half moves? Put '0' if you are not sure.\n> ")
+full_move = 1 #input("\nWhat is the number of full moves? Put 1' if you are not sure.\n> ")
 
 
+if castle_w == "-" and castle_b == "-":
+    castle_w = ""
 initial_fen = check_fen(f"{color} {castle_w}{castle_b} {en_passant} {half_move} {full_move}")
-print(initial_fen, "\n")
+board = chess.Board(initial_fen)
+print(f"Initial FEN: {initial_fen}", "\n")
+
 while not board.is_game_over():
-    piece_size = driver.find_element_by_css_selector(".layout-board.board").size["height"]/8
+    piece_size = driver.find_element_by_css_selector(".board-layout-chessboard .board").size["height"]/8  # Online play
+    # piece_size = driver.find_element_by_css_selector(".layout-board.board").size["height"]/8  # Against computer
     while True:
         fen = check_fen(board.fen().split(" ", 1)[1])
-        print(fen, "\n")
         if board.fen() != fen or board.fen() == initial_fen:
             board = chess.Board(fen)
             break
+        time.sleep(0.1)
 
-    result = engine.play(board, limit)
-    origin = find_loc(str(result.move)[:2])
-    target = find_loc(str(result.move)[2:4])
+    print(f"Current FEN: {board.fen()}", "\n")
+    try:
+        result = engine.play(board, limit)
+    except chess.engine.EngineTerminatedError:
+        print("Error running engine. Reloading engine...")
+        time.sleep(3)
+        engine = chess.engine.SimpleEngine.popen_uci(stockfish)
+        result = engine.play(board, limit)
+
+    print(f"Moving {result.move}")
+    origin = find_loc(str(result.move)[:2], array)
+    target = find_loc(str(result.move)[2:4], array)
     offset = [a - b for a, b in zip(target, origin)]
     offset[0] *= piece_size
     offset[1] *= -piece_size
+    
+    if not is_white:
+        origin = find_loc(str(result.move)[:2], original_array)
     
     origin_push = driver.find_element_by_xpath(f"//div[contains(@class, 'piece') and contains(@class, 'square-{origin[0]}{origin[1]}')]")
     action_chains = ActionChains(driver)
@@ -104,4 +135,6 @@ while not board.is_game_over():
     board.push(result.move)
     print(board, "\n")
 
-    time.sleep(3)
+    sleep_time = random.randint(1, 3)
+    print(f"Sleeping for {sleep_time} seconds...")
+    time.sleep(sleep_time)
